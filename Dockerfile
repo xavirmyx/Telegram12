@@ -10,5 +10,5 @@ COPY . /app
 # Instalar dependencias
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Especificar comando de inicio
+# Ejecutar el bot
 CMD ["python", "bot.py"]
