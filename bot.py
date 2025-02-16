@@ -12,10 +12,11 @@ from database import init_db
 # Cargar variables de entorno
 load_dotenv()
 TOKEN = os.getenv("BOT_TOKEN")
+WEBHOOK_BASE_URL = os.getenv("RENDER_EXTERNAL_URL", "https://telegram12.onrender.com")
 WEBHOOK_PATH = os.getenv("WEBHOOK_PATH", "/webhook")
-WEBHOOK_URL = os.getenv("WEBHOOK_URL", f"https://{os.getenv('REPLIT_APP_URL', 'localhost')}{WEBHOOK_PATH}")
-WEBAPP_HOST = os.getenv("WEBAPP_HOST", "0.0.0.0")
-WEBAPP_PORT = int(os.getenv("WEBAPP_PORT", 8000))
+WEBHOOK_URL = f"{WEBHOOK_BASE_URL}{WEBHOOK_PATH}"
+WEBAPP_HOST = "0.0.0.0"
+WEBAPP_PORT = int(os.getenv("PORT", 8000))
 WELCOME_MESSAGE = os.getenv("WELCOME_MESSAGE", "¡Bot iniciado!")
 GROUP_ID = os.getenv("GROUP_ID")
 
@@ -58,39 +59,14 @@ async def setup_webhook(bot: Bot) -> bool:
         logger.error(f"Error en la configuración del webhook: {e}")
         return False
 
-async def retry_webhook_setup(bot: Bot, max_retries=5, initial_delay=30):
-    """Reintentar la configuración del webhook con backoff exponencial."""
-    for attempt in range(max_retries):
-        try:
-            logger.info(f"Intento de configuración del webhook {attempt + 1}/{max_retries}")
-
-            if attempt == 0:
-                logger.info(f"Esperando {initial_delay}s para propagación DNS...")
-                await asyncio.sleep(initial_delay)
-
-            if not await verify_webhook_url(WEBHOOK_URL):
-                raise ValueError("La URL del webhook no es accesible")
-
-            if await setup_webhook(bot):
-                return True
-        except Exception as e:
-            logger.error(f"Intento {attempt + 1} fallido: {e}")
-            if attempt < max_retries - 1:
-                wait_time = initial_delay * (2 ** attempt)
-                logger.info(f"Reintentando en {wait_time}s...")
-                await asyncio.sleep(wait_time)
-            else:
-                logger.error("Se alcanzó el número máximo de reintentos para el webhook")
-                return False
-
 async def on_startup(bot: Bot):
     logger.info("Iniciando aplicación...")
     try:
         me = await bot.get_me()
         logger.info(f"Bot iniciado: @{me.username}")
 
-        if not await retry_webhook_setup(bot):
-            raise Exception("No se pudo configurar el webhook después de múltiples intentos")
+        if not await setup_webhook(bot):
+            raise Exception("No se pudo configurar el webhook")
 
         if GROUP_ID:
             try:
@@ -125,6 +101,10 @@ def main():
         app.on_startup.append(lambda _: asyncio.create_task(on_startup(bot)))
         app.on_shutdown.append(lambda _: asyncio.create_task(on_shutdown(bot)))
 
+        async def handle(request):
+            return web.Response(text="Webhook activo", status=200)
+        app.router.add_get("/", handle)
+        
         logger.info(f"Servidor web en {WEBAPP_HOST}:{WEBAPP_PORT}")
         web.run_app(app, host=WEBAPP_HOST, port=WEBAPP_PORT)
     except Exception as e:
