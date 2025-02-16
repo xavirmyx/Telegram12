@@ -4,7 +4,7 @@ from aiogram import types, Router, Dispatcher
 from aiogram.filters import ChatMemberUpdatedFilter, JOIN_TRANSITION
 from aiogram.filters.command import Command
 from database import log_event, save_warning, remove_warning
-from config import WELCOME_MESSAGE, KICK_MESSAGE, GROUP_ID
+import config
 from utils import check_profile_changes, format_violation_message, get_user_profile_status
 
 logger = logging.getLogger(__name__)
