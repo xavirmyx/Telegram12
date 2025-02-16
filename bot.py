@@ -1,18 +1,25 @@
+import os
 import logging
 import asyncio
 from aiogram import Bot, Dispatcher
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from aiogram.client.default import DefaultBotProperties
 from aiohttp import web, ClientSession, ClientTimeout
-from config import (
-    TOKEN, WEBHOOK_PATH, WEBHOOK_URL, 
-    WEBAPP_HOST, WEBAPP_PORT, WELCOME_MESSAGE,
-    GROUP_ID
-)
+from dotenv import load_dotenv
 from handlers import register_handlers
 from database import init_db
 
-# Configure logging
+# Cargar variables de entorno
+load_dotenv()
+TOKEN = os.getenv("BOT_TOKEN")
+WEBHOOK_PATH = os.getenv("WEBHOOK_PATH")
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")
+WEBAPP_HOST = os.getenv("WEBAPP_HOST", "0.0.0.0")
+WEBAPP_PORT = int(os.getenv("WEBAPP_PORT", 8000))
+WELCOME_MESSAGE = os.getenv("WELCOME_MESSAGE", "Bot iniciado!")
+GROUP_ID = os.getenv("GROUP_ID")
+
+# Configurar logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -20,152 +27,111 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 async def verify_webhook_url(url: str) -> bool:
-    """Verify if the webhook URL is accessible"""
+    """Verificar si la URL del webhook es accesible."""
     test_url = url.replace(TOKEN, 'dummy_token')
-    logger.info(f"Verifying webhook URL (sanitized): {test_url}")
+    logger.info(f"Verificando webhook URL (sanitizada): {test_url}")
 
     try:
-        timeout = ClientTimeout(total=30)
-        async with ClientSession(timeout=timeout) as session:
+        async with ClientSession(timeout=ClientTimeout(total=30)) as session:
             async with session.get(test_url) as response:
                 status = response.status
-                logger.info(f"Webhook URL verification status: {status}")
+                logger.info(f"Estado de verificación del webhook: {status}")
                 return status != 404
     except Exception as e:
-        logger.error(f"Error verifying webhook URL: {e}")
+        logger.error(f"Error verificando la URL del webhook: {e}")
         return False
 
 async def setup_webhook(bot: Bot) -> bool:
-    """Set up webhook with verification"""
+    """Configurar el webhook con verificación."""
     try:
-        # Delete any existing webhook
         await bot.delete_webhook(drop_pending_updates=True)
-        logger.info("✅ Removed existing webhook")
+        logger.info("✅ Webhook eliminado")
 
-        # Set the new webhook
         await bot.set_webhook(
             url=WEBHOOK_URL,
             drop_pending_updates=True,
             allowed_updates=["message", "chat_member"]
         )
-        logger.info("✅ Set new webhook")
-
-        # Verify the webhook was set correctly
-        webhook_info = await bot.get_webhook_info()
-        logger.info(f"Current webhook info: {webhook_info}")
+        logger.info("✅ Webhook establecido")
 
         return True
-
     except Exception as e:
-        logger.error(f"Error in webhook setup: {e}")
+        logger.error(f"Error en la configuración del webhook: {e}")
         return False
 
 async def retry_webhook_setup(bot: Bot, max_retries=5, initial_delay=30):
-    """Retry webhook setup with exponential backoff"""
+    """Reintentar la configuración del webhook con backoff exponencial."""
     for attempt in range(max_retries):
         try:
-            logger.info(f"Webhook setup attempt {attempt + 1}/{max_retries}")
+            logger.info(f"Intento de configuración del webhook {attempt + 1}/{max_retries}")
 
-            # Wait for DNS propagation on first attempt
             if attempt == 0:
-                logger.info(f"Waiting {initial_delay}s for DNS propagation...")
+                logger.info(f"Esperando {initial_delay}s para propagación DNS...")
                 await asyncio.sleep(initial_delay)
 
-            # Verify URL is accessible
             if not await verify_webhook_url(WEBHOOK_URL):
-                raise ValueError("Webhook URL is not accessible")
+                raise ValueError("La URL del webhook no es accesible")
 
-            # Attempt webhook setup
             if await setup_webhook(bot):
                 return True
 
-            raise ValueError("Webhook setup verification failed")
-
         except Exception as e:
-            logger.error(f"Attempt {attempt + 1} failed: {e}")
+            logger.error(f"Intento {attempt + 1} fallido: {e}")
             if attempt < max_retries - 1:
                 wait_time = initial_delay * (2 ** attempt)
-                logger.info(f"Retrying in {wait_time}s...")
+                logger.info(f"Reintentando en {wait_time}s...")
                 await asyncio.sleep(wait_time)
             else:
-                logger.error("Max retries reached for webhook setup")
+                logger.error("Se alcanzó el número máximo de reintentos para el webhook")
                 return False
+
+async def on_startup(bot: Bot):
+    logger.info("Iniciando aplicación...")
+    try:
+        me = await bot.get_me()
+        logger.info(f"Bot iniciado: @{me.username}")
+
+        if not await retry_webhook_setup(bot):
+            raise Exception("No se pudo configurar el webhook después de múltiples intentos")
+
+        if GROUP_ID:
+            try:
+                await bot.send_message(chat_id=GROUP_ID, text=WELCOME_MESSAGE, parse_mode="HTML")
+                logger.info("Mensaje de bienvenida enviado")
+            except Exception as e:
+                logger.error(f"Error enviando mensaje de bienvenida: {e}")
+    except Exception as e:
+        logger.error(f"Error en el inicio: {e}")
+        raise
+
+async def on_shutdown(bot: Bot):
+    logger.info("Apagando aplicación...")
+    try:
+        await bot.delete_webhook()
+        logger.info("✅ Webhook eliminado")
+    except Exception as e:
+        logger.error(f"Error durante la desconexión: {e}")
 
 def main():
     try:
-        logger.info("Starting bot application...")
-
-        # Initialize bot and dispatcher
+        logger.info("Iniciando bot...")
         bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
         dp = Dispatcher()
-
-        # Register handlers
         register_handlers(dp)
-
-        # Initialize database
         init_db()
 
-        # Create aiohttp application
         app = web.Application()
-
-        # Setup webhook handler
-        webhook_requests_handler = SimpleRequestHandler(
-            dispatcher=dp,
-            bot=bot
-        )
-        webhook_requests_handler.register(app, path=WEBHOOK_PATH)
-
-        # Setup application
+        SimpleRequestHandler(dispatcher=dp, bot=bot).register(app, path=WEBHOOK_PATH)
         setup_application(app, dp, bot=bot)
+        
+        app.on_startup.append(lambda _: asyncio.create_task(on_startup(bot)))
+        app.on_shutdown.append(lambda _: asyncio.create_task(on_shutdown(bot)))
 
-        async def on_startup(app):
-            logger.info("Starting up...")
-            try:
-                # Get bot information
-                me = await bot.get_me()
-                logger.info(f"Bot initialized: @{me.username}")
-
-                # Setup webhook with retry mechanism
-                if not await retry_webhook_setup(bot):
-                    raise Exception("Failed to set up webhook after multiple retries")
-
-                # Send welcome message
-                if GROUP_ID:
-                    try:
-                        await bot.send_message(
-                            chat_id=GROUP_ID,
-                            text=WELCOME_MESSAGE,
-                            parse_mode="HTML"
-                        )
-                        logger.info("Welcome message sent successfully")
-                    except Exception as e:
-                        logger.error(f"Failed to send welcome message: {e}")
-            except Exception as e:
-                logger.error(f"Startup error: {e}")
-                raise
-
-        async def on_shutdown(app):
-            logger.info("Shutting down...")
-            try:
-                await bot.delete_webhook()
-                logger.info("✅ Webhook deleted")
-            except Exception as e:
-                logger.error(f"Error during shutdown: {e}")
-
-        app.on_startup.append(on_startup)
-        app.on_shutdown.append(on_shutdown)
-
-        # Start web server
-        logger.info(f"Starting web server on {WEBAPP_HOST}:{WEBAPP_PORT}")
-        web.run_app(
-            app,
-            host=WEBAPP_HOST,
-            port=WEBAPP_PORT
-        )
-
+        logger.info(f"Servidor web en {WEBAPP_HOST}:{WEBAPP_PORT}")
+        web.run_app(app, host=WEBAPP_HOST, port=WEBAPP_PORT)
     except Exception as e:
-        logger.error(f"Fatal error: {e}", exc_info=True)
+        logger.error(f"Error fatal: {e}", exc_info=True)
         raise
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
