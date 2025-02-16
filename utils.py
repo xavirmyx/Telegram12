@@ -96,10 +96,10 @@ def format_violation_message(violations: Dict[str, bool], username: str) -> Opti
         return None
 
     violations_text = " y ".join(violation_texts)
-    return (f"⚠️ @{username}, se ha detectado que {violations_text}.
+    return (f"""
+⚠️ @{username}, se ha detectado que {violations_text}.
 
-"
-            f"🕐 Tienes 5 minutos para corregir esto o serás expulsado del grupo.
+🕐 Tienes 5 minutos para corregir esto o serás expulsado del grupo.
 
-"
-            f"<i>Este es un mensaje automático del sistema de moderación.</i>")
+<i>Este es un mensaje automático del sistema de moderación.</i>
+""")
