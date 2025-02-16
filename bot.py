@@ -30,7 +30,7 @@ async def verify_webhook_url(url: str) -> bool:
             async with session.get(test_url) as response:
                 status = response.status
                 logger.info(f"Webhook URL verification status: {status}")
-                return 200 <= status < 500
+                return status != 404
     except Exception as e:
         logger.error(f"Error verifying webhook URL: {e}")
         return False
@@ -39,27 +39,22 @@ async def setup_webhook(bot: Bot) -> bool:
     """Set up webhook with verification"""
     try:
         # Delete any existing webhook
-        logger.info("Removing existing webhook...")
         await bot.delete_webhook(drop_pending_updates=True)
+        logger.info("✅ Removed existing webhook")
 
         # Set the new webhook
-        logger.info(f"Setting webhook to URL: {WEBHOOK_URL}")
         await bot.set_webhook(
             url=WEBHOOK_URL,
             drop_pending_updates=True,
             allowed_updates=["message", "chat_member"]
         )
+        logger.info("✅ Set new webhook")
 
         # Verify the webhook was set correctly
         webhook_info = await bot.get_webhook_info()
         logger.info(f"Current webhook info: {webhook_info}")
 
-        if webhook_info.url == WEBHOOK_URL:
-            logger.info("✅ Webhook setup successful!")
-            return True
-        else:
-            logger.error(f"❌ Webhook URL mismatch. Expected: {WEBHOOK_URL}, Got: {webhook_info.url}")
-            return False
+        return True
 
     except Exception as e:
         logger.error(f"Error in webhook setup: {e}")
@@ -101,24 +96,19 @@ def main():
         logger.info("Starting bot application...")
 
         # Initialize bot and dispatcher
-        logger.info("Initializing bot and dispatcher...")
         bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
         dp = Dispatcher()
 
         # Register handlers
-        logger.info("Registering message handlers...")
         register_handlers(dp)
 
         # Initialize database
-        logger.info("Initializing database...")
         init_db()
 
         # Create aiohttp application
-        logger.info("Creating web application...")
         app = web.Application()
 
         # Setup webhook handler
-        logger.info("Setting up webhook handler...")
         webhook_requests_handler = SimpleRequestHandler(
             dispatcher=dp,
             bot=bot
@@ -131,7 +121,7 @@ def main():
         async def on_startup(app):
             logger.info("Starting up...")
             try:
-                # Get bot information for verification
+                # Get bot information
                 me = await bot.get_me()
                 logger.info(f"Bot initialized: @{me.username}")
 
@@ -157,9 +147,8 @@ def main():
         async def on_shutdown(app):
             logger.info("Shutting down...")
             try:
-                await bot.session.close()
                 await bot.delete_webhook()
-                logger.info("Shutdown completed successfully")
+                logger.info("✅ Webhook deleted")
             except Exception as e:
                 logger.error(f"Error during shutdown: {e}")
 

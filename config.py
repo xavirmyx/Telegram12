@@ -14,36 +14,28 @@ if not TOKEN:
 
 # Web Server Configuration
 WEBAPP_HOST = "0.0.0.0"
-WEBAPP_PORT = 8000
+WEBAPP_PORT = int(os.getenv("PORT", "8000"))
 
 # Determine Replit domain
 def get_replit_domain():
-    """Get the Replit domain with proper validation and formatting"""
-    domain = os.getenv('REPLIT_DOMAIN')
+    """Get the Replit domain with proper validation"""
+    repl_id = os.getenv('REPL_ID')
+    repl_slug = os.getenv('REPL_SLUG', '').lower()
 
-    if not domain:
-        # Try different methods to construct the domain
-        repl_owner = os.getenv('REPL_OWNER')
-        repl_slug = os.getenv('REPL_SLUG')
-        repl_id = os.getenv('REPL_ID')
-
-        if repl_owner and repl_slug:
-            domain = f"{repl_owner}.{repl_slug}"
-        elif repl_id:
-            domain = repl_id
-
-        if not domain:
-            raise ValueError("Could not determine Replit domain")
-
-    # Ensure proper domain suffix
-    if not domain.endswith('.repl.co') and not domain.endswith('.repl.dev'):
-        domain = f"{domain}.repl.co"
-
-    return domain
+    if repl_id:
+        domain = f"{repl_id}.id.repl.co"
+        logger.info(f"Using Repl ID domain: {domain}")
+        return domain
+    elif repl_slug:
+        domain = f"{repl_slug}.repl.co"
+        logger.info(f"Using Repl slug domain: {domain}")
+        return domain
+    else:
+        raise ValueError("No valid Replit configuration found")
 
 try:
     REPLIT_DOMAIN = get_replit_domain()
-    logger.info(f"Using Replit domain: {REPLIT_DOMAIN}")
+    logger.info(f"Final Replit domain: {REPLIT_DOMAIN}")
 except Exception as e:
     logger.error(f"Error determining Replit domain: {e}")
     raise
@@ -54,14 +46,7 @@ WEBHOOK_URL = f"https://{REPLIT_DOMAIN}{WEBHOOK_PATH}"
 logger.info(f"Webhook URL configured as: {WEBHOOK_URL}")
 
 # Group Configuration
-try:
-    GROUP_ID = int(os.getenv("GROUP_ID", "0"))
-    if GROUP_ID == 0:
-        logger.warning("GROUP_ID not set in environment variables")
-except ValueError:
-    logger.error("Invalid GROUP_ID format in environment variables")
-    GROUP_ID = 0
-
+GROUP_ID = int(os.getenv("GROUP_ID", "0"))
 BOT_USERNAME = os.getenv("BOT_USERNAME", "EntreClean_bot")
 
 # Bot Messages
