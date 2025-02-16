@@ -1,6 +1,6 @@
 import logging
 from aiogram import types
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Tuple
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -16,6 +16,28 @@ async def is_admin(chat_id: int, user_id: int, bot) -> bool:
         logger.error(f"Error checking admin status for user {user_id}: {e}", exc_info=True)
         return False
 
+async def get_user_profile_status(user_id: int, bot) -> Tuple[bool, bool]:
+    """
+    Check user's profile photo status
+    Returns: (has_photo, is_public)
+    """
+    try:
+        photos = await bot.get_user_profile_photos(user_id, limit=1)
+        if photos.total_count == 0:
+            return False, False
+
+        # Try to get the photo file to check if it's public
+        try:
+            photo = photos.photos[0][-1]
+            await bot.get_file(photo.file_id)
+            return True, True
+        except Exception:
+            return True, False
+
+    except Exception as e:
+        logger.error(f"Error checking profile photo for user {user_id}: {e}", exc_info=True)
+        return False, False
+
 async def check_profile_changes(user: types.User, chat_id: int, bot) -> Dict[str, bool]:
     """
     Check for all possible profile violations
@@ -26,9 +48,7 @@ async def check_profile_changes(user: types.User, chat_id: int, bot) -> Dict[str
         violations = {
             "no_photo": False,
             "private_photo": False,
-            "no_username": False,
-            "removed_username": False,
-            "removed_photo": False
+            "no_username": False
         }
 
         # Skip checks for admins
@@ -37,27 +57,20 @@ async def check_profile_changes(user: types.User, chat_id: int, bot) -> Dict[str
             return violations
 
         # Check for profile photo
-        photos = await user.get_profile_photos(limit=1)
-        if photos.total_count == 0:
+        has_photo, is_public = await get_user_profile_status(user.id, bot)
+        if not has_photo:
             violations["no_photo"] = True
             logger.info(f"User {user.id} has no profile photo")
-        else:
-            try:
-                # Try to get the photo file, if it fails, the photo is private
-                photo = photos[0][-1]  # Get the last size of the first photo
-                await bot.get_file(photo.file_id)
-            except Exception as e:
-                violations["private_photo"] = True
-                logger.info(f"User {user.id} has private profile photo")
+        elif not is_public:
+            violations["private_photo"] = True
+            logger.info(f"User {user.id} has private profile photo")
 
         # Check for username
         if not user.username:
             violations["no_username"] = True
             logger.info(f"User {user.id} has no username")
 
-        # Add detailed logging
         logger.info(f"Profile check completed for user {user.id}")
-        logger.info(f"Photos count: {photos.total_count}")
         logger.info(f"Username present: {bool(user.username)}")
         logger.info(f"Violations found: {violations}")
 
@@ -75,16 +88,19 @@ def format_violation_message(violations: Dict[str, bool], username: str) -> Opti
         return None
 
     violation_texts = []
-    if violations["no_photo"] or violations["removed_photo"]:
+    if violations.get("no_photo"):
         violation_texts.append("no tienes foto de perfil")
-    if violations["private_photo"]:
+    if violations.get("private_photo"):
         violation_texts.append("tu foto de perfil es privada")
-    if violations["no_username"] or violations["removed_username"]:
+    if violations.get("no_username"):
         violation_texts.append("no tienes @username")
 
     if not violation_texts:
         return None
 
-    return f"⚠️ @{username}, se ha detectado que {' y '.join(violation_texts)}.\n" \
-           f"Tienes 5 minutos para corregir esto o serás expulsado del grupo.\n" \
-           f"\n<i>Este es un mensaje automático del sistema de moderación.</i>"
+    violations_text = " y ".join(violation_texts)
+    return f"""⚠️ @{username}, se ha detectado que {violations_text}.
+
+🕐 Tienes 5 minutos para corregir esto o serás expulsado del grupo.
+
+<i>Este es un mensaje automático del sistema de moderación.</i>"""
