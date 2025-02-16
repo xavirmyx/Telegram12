@@ -7,6 +7,7 @@ from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_applicati
 from aiogram.client.default import DefaultBotProperties
 from aiohttp import web
 from dotenv import load_dotenv
+import handlers
 from database import init_db
 
 # Cargar variables de entorno
@@ -65,7 +66,7 @@ def main():
         logger.info("Iniciando bot...")
         bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
         dp = Dispatcher()
-        register_handlers(dp)
+        handlers.register_handlers(dp)
         init_db()
 
         app = web.Application()
