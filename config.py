@@ -1,6 +1,7 @@
 import os
 import logging
 import asyncio
+import ssl
 from aiogram import Bot, Dispatcher
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from aiogram.client.default import DefaultBotProperties
@@ -16,7 +17,7 @@ WEBHOOK_PATH = os.getenv("WEBHOOK_PATH")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 WEBAPP_HOST = os.getenv("WEBAPP_HOST", "0.0.0.0")
 WEBAPP_PORT = int(os.getenv("WEBAPP_PORT", 8000))
-WELCOME_MESSAGE = os.getenv("WELCOME_MESSAGE", "Bot iniciado!")
+WELCOME_MESSAGE = os.getenv("WELCOME_MESSAGE", "¡Bienvenido al grupo!")
 GROUP_ID = os.getenv("GROUP_ID")
 
 # Verificar si el token está presente
@@ -29,6 +30,12 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# Manejo de SSL para evitar errores en entornos restringidos
+try:
+    ssl_context = ssl.create_default_context()
+except AttributeError:
+    ssl_context = None
 
 async def on_startup(bot: Bot):
     logger.info("Iniciando aplicación...")
@@ -70,7 +77,7 @@ def main():
         app.on_shutdown.append(lambda _: asyncio.create_task(on_shutdown(bot)))
 
         logger.info(f"Servidor web en {WEBAPP_HOST}:{WEBAPP_PORT}")
-        web.run_app(app, host=WEBAPP_HOST, port=WEBAPP_PORT)
+        web.run_app(app, host=WEBAPP_HOST, port=WEBAPP_PORT, ssl_context=ssl_context)
     except Exception as e:
         logger.error(f"Error fatal: {e}", exc_info=True)
         raise
