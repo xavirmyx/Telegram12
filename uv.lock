@@ -481,7 +481,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "aiogram", specifier = ">=3.17.0" },
+    { name = "aiogram", specifier = ">=3.0.0" },
     { name = "aiohttp", specifier = ">=3.11.12" },
     { name = "python-dotenv", specifier = ">=1.0.1" },
     { name = "twilio", specifier = ">=9.4.5" },
