@@ -1,31 +1,36 @@
 import asyncio
 import logging
-from aiogram import types, Router, F, Dispatcher
-from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram import types, Router, F
+from aiogram.filters import ChatMemberUpdatedFilter, IS_NOT_MEMBER, IS_MEMBER
 from database import log_event, save_warning, remove_warning
-from config import WARNING_MESSAGE, KICK_MESSAGE
+from config import WARNING_MESSAGE, KICK_MESSAGE, GROUP_ID
 from utils import check_profile_changes
 
 logger = logging.getLogger(__name__)
 router = Router()
 
-@router.message(F.new_chat_members | F.left_chat_member)
-async def handle_user_update(message: types.Message):
+@router.chat_member(ChatMemberUpdatedFilter(member_status_changed=IS_MEMBER))
+async def on_user_update(event: types.ChatMemberUpdated):
     """
     Handler for user updates in the group
     """
     try:
-        user = message.from_user
-        chat_id = message.chat.id
+        # Only process events from the configured group
+        if event.chat.id != GROUP_ID:
+            return
+
+        # Get the updated user
+        user = event.new_chat_member.user
+        chat_id = event.chat.id
 
         # Check for profile changes
         changes = await check_profile_changes(user)
 
         if changes:
             # Send warning
-            warning_msg = await message.answer(
+            warning_msg = await event.answer(
                 WARNING_MESSAGE.format(
-                    username=user.username,
+                    username=user.username or user.id,
                     change_type=changes
                 ),
                 parse_mode="HTML"
@@ -40,28 +45,32 @@ async def handle_user_update(message: types.Message):
 
             # Check if warning should be acted upon
             if remove_warning(user.id):
-                # Kick user
-                await message.chat.ban(user.id)
+                # Try to kick user
+                try:
+                    await event.chat.ban(user.id)
+                    # Send kick message
+                    await event.answer(
+                        KICK_MESSAGE.format(
+                            username=user.username or user.id,
+                            change_type=changes
+                        ),
+                        parse_mode="HTML"
+                    )
+                    # Log kick event
+                    log_event(user.id, f"User kicked: {changes}", chat_id)
+                except Exception as e:
+                    logger.error(f"Failed to kick user {user.id}: {e}")
 
-                # Send kick message
-                await message.answer(
-                    KICK_MESSAGE.format(
-                        username=user.username,
-                        change_type=changes
-                    ),
-                    parse_mode="HTML"
-                )
-
-                # Log kick event
-                log_event(user.id, f"User kicked: {changes}", chat_id)
-
-                # Delete warning message
-                await warning_msg.delete()
+                # Try to delete warning message
+                try:
+                    await warning_msg.delete()
+                except Exception as e:
+                    logger.error(f"Failed to delete warning message: {e}")
 
     except Exception as e:
-        logger.error(f"Unexpected error: {e}")
+        logger.error(f"Error in user update handler: {e}", exc_info=True)
 
-def register_handlers(dp: Dispatcher):
+def register_handlers(dp):
     """
     Register all handlers
     """
