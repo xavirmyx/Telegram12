@@ -1,77 +1,79 @@
 import os
 import logging
+import asyncio
+from aiogram import Bot, Dispatcher
+from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
+from aiogram.client.default import DefaultBotProperties
+from aiohttp import web
 from dotenv import load_dotenv
+from handlers import register_handlers
+from database import init_db
 
-# Cargar variables de entorno desde el archivo .env
+# Cargar variables de entorno
 load_dotenv()
+TOKEN = os.getenv("BOT_TOKEN")
+WEBHOOK_PATH = os.getenv("WEBHOOK_PATH")
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")
+WEBAPP_HOST = os.getenv("WEBAPP_HOST", "0.0.0.0")
+WEBAPP_PORT = int(os.getenv("WEBAPP_PORT", 8000))
+WELCOME_MESSAGE = os.getenv("WELCOME_MESSAGE", "Bot iniciado!")
+GROUP_ID = os.getenv("GROUP_ID")
 
-# Configuración del bot
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-if not BOT_TOKEN:
-    raise ValueError("Se requiere la variable de entorno BOT_TOKEN")
+# Verificar si el token está presente
+if not TOKEN:
+    raise ValueError("Falta la variable de entorno BOT_TOKEN")
 
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///bot_data.db")
-
-# Configuración del servidor web
-WEBAPP_HOST = "0.0.0.0"
-WEBAPP_PORT = int(os.getenv("PORT", "8000"))
-
-# Configuración del logger
+# Configurar logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
-# Determinar la definición del dominio de Replit
-def get_replit_domain():
-    """Obtener el dominio de Replit con la validación adecuada"""
-    repl_id = os.getenv('REPL_ID')
-    repl_slug = os.getenv('REPL_SLUG', '').lower()
+async def on_startup(bot: Bot):
+    logger.info("Iniciando aplicación...")
+    try:
+        me = await bot.get_me()
+        logger.info(f"Bot iniciado: @{me.username}")
 
-    if repl_id:
-        domain = f"{repl_id}.id.repl.co"
-        logger.info(f"Usando el dominio de Replit ID: {domain}")
-        return domain
-    elif repl_slug:
-        domain = f"{repl_slug}.repl.co"
-        logger.info(f"Usando el dominio de Repl slug: {domain}")
-        return domain
-    else:
-        raise ValueError("No se encontró una configuración de Replit válida")
+        if GROUP_ID:
+            try:
+                await bot.send_message(chat_id=GROUP_ID, text=WELCOME_MESSAGE, parse_mode="HTML")
+                logger.info("Mensaje de bienvenida enviado")
+            except Exception as e:
+                logger.error(f"Error enviando mensaje de bienvenida: {e}")
+    except Exception as e:
+        logger.error(f"Error en el inicio: {e}")
+        raise
 
-try:
-    REPLIT_DOMAIN = get_replit_domain()
-    logger.info(f"Dominio final de Replit: {REPLIT_DOMAIN}")
-except Exception as e:
-    logger.error(f"Error al determinar el dominio de Replit: {e}")
-    raise
+async def on_shutdown(bot: Bot):
+    logger.info("Apagando aplicación...")
+    try:
+        await bot.delete_webhook()
+        logger.info("✅ Webhook eliminado")
+    except Exception as e:
+        logger.error(f"Error durante la desconexión: {e}")
 
-# Configuración de Webhook
-WEBHOOK_PATH = f"/webhook/{BOT_TOKEN}"
-WEBHOOK_URL = f"https://{REPLIT_DOMAIN}{WEBHOOK_PATH}"
-logger.info(f"URL de Webhook configurada como: {WEBHOOK_URL}")
+def main():
+    try:
+        logger.info("Iniciando bot...")
+        bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
+        dp = Dispatcher()
+        register_handlers(dp)
+        init_db()
 
-# Configuración de grupo
-GROUP_ID = int(os.getenv("GROUP_ID", "0"))
-BOT_USERNAME = os.getenv("BOT_USERNAME", "EntreClean_bot")
+        app = web.Application()
+        SimpleRequestHandler(dispatcher=dp, bot=bot).register(app, path=WEBHOOK_PATH)
+        setup_application(app, dp, bot=bot)
+        
+        app.on_startup.append(lambda _: asyncio.create_task(on_startup(bot)))
+        app.on_shutdown.append(lambda _: asyncio.create_task(on_shutdown(bot)))
 
-# Mensajes del bot
-WELCOME_MESSAGE = """
-🤖 <b>Bot de Moderación EntresHijos</b>
+        logger.info(f"Servidor web en {WEBAPP_HOST}:{WEBAPP_PORT}")
+        web.run_app(app, host=WEBAPP_HOST, port=WEBAPP_PORT)
+    except Exception as e:
+        logger.error(f"Error fatal: {e}", exc_info=True)
+        raise
 
-✅ Sistema iniciado correctamente
-📝 Funciones activas:
-• Monitoreo de fotos de perfil
-• Detección de cambios de nombre de usuario
-• Sistema automático de advertencias
-
-<i>Bot de moderación profesional - EntresHijos</i>
-"""
-
-KICK_MESSAGE = """
-❌ <b>Usuario Expulsado</b>
-
-• Usuario: @{username}
-• Motivo: {change_type}
-• Tiempo otorgado: 5 minutos
-
-<i>Acción ejecutada automáticamente por el sistema de moderación.</i>
-"""
+if __name__ == "__main__":
+    main()
