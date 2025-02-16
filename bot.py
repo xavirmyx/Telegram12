@@ -12,11 +12,11 @@ from database import init_db
 # Cargar variables de entorno
 load_dotenv()
 TOKEN = os.getenv("BOT_TOKEN")
-WEBHOOK_PATH = os.getenv("WEBHOOK_PATH")
-WEBHOOK_URL = os.getenv("WEBHOOK_URL")
+WEBHOOK_PATH = os.getenv("WEBHOOK_PATH", "/webhook")
+WEBHOOK_URL = os.getenv("WEBHOOK_URL", f"https://{os.getenv('REPLIT_APP_URL', 'localhost')}{WEBHOOK_PATH}")
 WEBAPP_HOST = os.getenv("WEBAPP_HOST", "0.0.0.0")
 WEBAPP_PORT = int(os.getenv("WEBAPP_PORT", 8000))
-WELCOME_MESSAGE = os.getenv("WELCOME_MESSAGE", "Bot iniciado!")
+WELCOME_MESSAGE = os.getenv("WELCOME_MESSAGE", "¡Bot iniciado!")
 GROUP_ID = os.getenv("GROUP_ID")
 
 # Configurar logging
@@ -53,7 +53,6 @@ async def setup_webhook(bot: Bot) -> bool:
             allowed_updates=["message", "chat_member"]
         )
         logger.info("✅ Webhook establecido")
-
         return True
     except Exception as e:
         logger.error(f"Error en la configuración del webhook: {e}")
@@ -74,7 +73,6 @@ async def retry_webhook_setup(bot: Bot, max_retries=5, initial_delay=30):
 
             if await setup_webhook(bot):
                 return True
-
         except Exception as e:
             logger.error(f"Intento {attempt + 1} fallido: {e}")
             if attempt < max_retries - 1:
