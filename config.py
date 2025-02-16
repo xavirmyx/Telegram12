@@ -7,7 +7,6 @@ from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_applicati
 from aiogram.client.default import DefaultBotProperties
 from aiohttp import web
 from dotenv import load_dotenv
-from handlers import register_handlers
 from database import init_db
 
 # Cargar variables de entorno
