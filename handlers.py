@@ -10,20 +10,18 @@ from utils import check_profile_changes, format_violation_message, get_user_prof
 logger = logging.getLogger(__name__)
 router = Router()
 
-
 @router.message(Command("start"))
 async def handle_start(message: types.Message):
     """
     Handler for /start command
     """
     try:
-        if message.chat.id == GROUP_ID:
-            await message.answer(WELCOME_MESSAGE, parse_mode="HTML")
+        if message.chat.id == config.GROUP_ID:
+            await message.answer(config.WELCOME_MESSAGE, parse_mode="HTML")
         else:
             await message.answer("Este bot solo funciona en el grupo autorizado.")
     except Exception as e:
         logger.error(f"Error handling start command: {e}", exc_info=True)
-
 
 @router.message()
 async def handle_message(message: types.Message):
@@ -31,7 +29,7 @@ async def handle_message(message: types.Message):
     Handler for all messages to check user profile compliance
     """
     try:
-        if message.chat.id != GROUP_ID:
+        if message.chat.id != config.GROUP_ID:
             return
 
         user = message.from_user
@@ -48,17 +46,14 @@ async def handle_message(message: types.Message):
 
             if warning_text:
                 warning_msg = await message.answer(warning_text, parse_mode="HTML")
-
                 save_warning(user.id, warning_msg.message_id)
                 log_event(user.id, f"Warning sent: {violations}", message.chat.id)
 
                 asyncio.create_task(
                     schedule_kick(user.id, user.username or str(user.id), message.chat.id, warning_msg, message.bot)
                 )
-
     except Exception as e:
         logger.error(f"Error in message handler: {e}", exc_info=True)
-
 
 @router.chat_member(ChatMemberUpdatedFilter(JOIN_TRANSITION))
 async def on_user_join(event: types.ChatMemberUpdated):
@@ -66,7 +61,7 @@ async def on_user_join(event: types.ChatMemberUpdated):
     Handler for new users joining the group
     """
     try:
-        if event.chat.id != GROUP_ID:
+        if event.chat.id != config.GROUP_ID:
             return
 
         user = event.new_chat_member.user
@@ -77,27 +72,22 @@ async def on_user_join(event: types.ChatMemberUpdated):
 
             if warning_text:
                 warning_msg = await event.bot.send_message(event.chat.id, warning_text, parse_mode="HTML")
-
                 save_warning(user.id, warning_msg.message_id)
                 log_event(user.id, f"Warning sent on join: {violations}", event.chat.id)
 
                 asyncio.create_task(
                     schedule_kick(user.id, user.username or str(user.id), event.chat.id, warning_msg, event.bot)
                 )
-
     except Exception as e:
         logger.error(f"Error in user join handler: {e}", exc_info=True)
-
 
 async def schedule_kick(user_id: int, username: str, chat_id: int, warning_msg: types.Message, bot):
     """
     Schedule user kick after warning period
     """
     await asyncio.sleep(300)  # 5 minutos
-
     try:
         if remove_warning(user_id):
-            # Re-check profile status before kicking
             has_photo, is_public = await get_user_profile_status(user_id, bot)
             user = await bot.get_chat_member(chat_id, user_id)
             current_violations = await check_profile_changes(user, chat_id, bot)
@@ -117,7 +107,7 @@ async def schedule_kick(user_id: int, username: str, chat_id: int, warning_msg: 
 
                     await bot.send_message(
                         chat_id,
-                        KICK_MESSAGE.format(username=username, change_type=", ".join(violation_types)),
+                        config.KICK_MESSAGE.format(username=username, change_type=", ".join(violation_types)),
                         parse_mode="HTML"
                     )
                     log_event(user_id, f"User kicked: {current_violations}", chat_id)
@@ -128,10 +118,8 @@ async def schedule_kick(user_id: int, username: str, chat_id: int, warning_msg: 
                     await warning_msg.delete()
                 except Exception as e:
                     logger.error(f"Failed to delete warning message: {e}")
-
     except Exception as e:
         logger.error(f"Error in schedule_kick: {e}", exc_info=True)
-
 
 def register_handlers(dp: Dispatcher):
     """
